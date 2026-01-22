@@ -1,29 +1,142 @@
-import React from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FaUser } from "react-icons/fa"; // <--- Import ini
+import { FaUser } from "react-icons/fa";
+
+// FIREBASE
+import { db, auth } from "../firebase";
+import { collection, addDoc } from "firebase/firestore";
 
 const SplitSuccess = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [saving, setSaving] = useState(false);
 
-  const { groupName, groupIcon, members, memberOrders, tax, service } =
-    location.state || {
-      groupName: "Test Group",
-      groupIcon: "🧪",
-      members: [],
-      memberOrders: [],
-      tax: 0,
-      service: 0,
-    };
+  // Ambil data
+  const state = location.state || {};
+  const {
+    groupName,
+    groupIcon,
+    members,
+    memberOrders,
+    tax,
+    service,
+    groupId, // Pastikan groupId juga diambil dari state jika ada, untuk notifikasi
+    isExisting,
+  } = state;
+
+  // Fallback data kosong biar gak error
+  if (!location.state) return null;
 
   const servicePerPerson = service / (members.length || 1);
   let grandTotal = 0;
   const formatRp = (num) => "Rp " + Math.floor(num).toLocaleString("id-ID");
 
-  const handleDone = () => {
-    // Logic Create Bill Real nanti disini...
-    // Sementara balik ke home
-    navigate("/home");
+  // === HELPER: Prepare Data Utang ===
+  const calculateSplits = () => {
+    const splits = [];
+    memberOrders.forEach((order) => {
+      const subtotal = order.items.reduce(
+        (acc, item) =>
+          acc + (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 0),
+        0,
+      );
+
+      if (subtotal === 0) return;
+
+      const userTax = (subtotal * tax) / 100;
+      const totalUser = subtotal + userTax + servicePerPerson;
+
+      // Tentukan status
+      const isMe =
+        order.memberId === auth.currentUser?.uid || order.memberId === "me";
+
+      splits.push({
+        uid: order.memberId === "me" ? auth.currentUser.uid : order.memberId,
+        name: order.memberName,
+        avatar:
+          members.find(
+            (m) =>
+              m.uid === order.memberId ||
+              (order.memberId === "me" && m.uid === auth.currentUser?.uid),
+          )?.avatar || "default",
+        totalAmount: totalUser,
+        status: isMe ? "paid" : "unpaid",
+        items: order.items,
+      });
+    });
+    return splits;
+  };
+
+  // === LOGIC TOMBOL DONE ===
+  const handleDone = async () => {
+    // 1. JIKA INI BILL LAMA (VIEW DETAIL) -> LANGSUNG BALIK
+    if (isExisting) {
+      navigate("/home");
+      return;
+    }
+
+    // 2. JIKA INI BILL BARU -> SIMPAN KE DB
+    setSaving(true);
+    try {
+      const currentUser = auth.currentUser;
+      const splitsData = calculateSplits();
+
+      // Hitung grandTotal di sini untuk memastikan nilainya benar sebelum disimpan
+      const calculatedGrandTotal = splitsData.reduce(
+        (acc, split) => acc + split.totalAmount,
+        0,
+      );
+
+      const billData = {
+        groupId: groupId || "UNKNOWN", // Gunakan groupId dari state atau default
+        groupName: groupName,
+        groupIcon: groupIcon,
+        title: `Bill at ${groupName}`,
+        createdBy: currentUser.uid,
+        creatorName: currentUser.displayName || "User",
+        createdAt: new Date(),
+        totalAmount: calculatedGrandTotal,
+        tax: parseFloat(tax),
+        service: parseFloat(service),
+        splits: splitsData,
+        involvedMemberIds: members.map(
+          (m) => m.uid || (m.id === "me" ? currentUser.uid : m.id),
+        ),
+      };
+
+      // Simpan Bill
+      const billRef = await addDoc(collection(db, "bills"), billData);
+
+      // === LOGIC NOTIFIKASI ===
+      const notifPromises = splitsData.map(async (split) => {
+        // Jangan kirim notif ke diri sendiri (pembuat bill)
+        if (split.uid === currentUser.uid) return;
+
+        await addDoc(collection(db, "notifications"), {
+          recipientId: split.uid,
+          senderId: currentUser.uid,
+          senderName: currentUser.displayName || "User",
+          senderAvatar: currentUser.photoURL || "default",
+          type: "new_bill",
+          groupId: groupId || "UNKNOWN",
+          groupName: groupName,
+          billId: billRef.id,
+          message: `sent you a bill in the '${groupName}' group.`,
+          isRead: false,
+          createdAt: new Date(),
+        });
+      });
+
+      await Promise.all(notifPromises);
+      // === END LOGIC NOTIFIKASI ===
+
+      navigate("/home");
+    } catch (error) {
+      console.error("Error saving bill:", error);
+      alert("Gagal menyimpan tagihan");
+    } finally {
+      setSaving(false);
+    }
   };
 
   // === COMPONENT AVATAR ===
@@ -65,7 +178,6 @@ const SplitSuccess = () => {
                   key={idx}
                   className="flex flex-col items-center min-w-[60px]"
                 >
-                  {/* Pakai UserAvatar */}
                   <UserAvatar url={m.avatar} size="w-14 h-14" />
                   <span className="text-xs font-medium text-gray-600 mt-2 text-center truncate w-full">
                     {m.name}
@@ -83,11 +195,11 @@ const SplitSuccess = () => {
             Bill Receipt
           </h2>
           <p className="text-center text-xs text-gray-400 mb-6">
-            billsid: {Date.now()}
+            {isExisting ? "Viewing History" : `billsid: ${Date.now()}`}
           </p>
 
           <div className="space-y-6 font-mono text-sm text-gray-700">
-            {memberOrders.map((order) => {
+            {memberOrders.map((order, i) => {
               const userSubtotal = order.items.reduce(
                 (acc, item) =>
                   acc +
@@ -96,13 +208,16 @@ const SplitSuccess = () => {
               );
               const userTax = (userSubtotal * tax) / 100;
               const userTotal = userSubtotal + userTax + servicePerPerson;
+
+              // Reset grandTotal saat render ulang (hanya visual, kalkulasi DB pakai calculateSplits)
+              if (i === 0) grandTotal = 0;
               grandTotal += userTotal;
 
               if (userSubtotal === 0) return null;
 
               return (
                 <div
-                  key={order.memberId}
+                  key={order.memberId || i}
                   className="border-b border-dashed border-gray-300 pb-4 last:border-0"
                 >
                   <p className="font-bold text-[#1E4720] mb-2 text-base">
@@ -142,9 +257,11 @@ const SplitSuccess = () => {
                 {formatRp(grandTotal)}
               </span>
             </div>
-            <p className="text-center text-[10px] text-gray-400 mt-4">
-              Notification sent to all members successfully.
-            </p>
+            {!isExisting && (
+              <p className="text-center text-[10px] text-gray-400 mt-4">
+                Notification will be sent to members.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -152,9 +269,12 @@ const SplitSuccess = () => {
       <div className="fixed bottom-0 w-full max-w-[400px] bg-white p-6 border-t border-gray-100 z-50">
         <button
           onClick={handleDone}
-          className="w-full py-4 rounded-full font-bold text-white bg-[#375E3A] shadow-lg active:scale-[0.98] transition-transform hover:bg-[#2c4b2e]"
+          disabled={saving}
+          className={`w-full py-4 rounded-full font-bold text-white shadow-lg transition-all transform active:scale-[0.98] 
+                ${saving ? "bg-gray-400 cursor-not-allowed" : "bg-[#375E3A] hover:bg-[#2c4b2e]"}
+            `}
         >
-          Done
+          {saving ? "Saving..." : "Done"}
         </button>
       </div>
     </div>

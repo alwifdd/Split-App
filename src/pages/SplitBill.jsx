@@ -12,33 +12,38 @@ const SplitBill = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { groupName, groupIcon, members } = location.state || {
-    groupName: "Bubur Ayams",
-    groupIcon: "🥣",
+  const { groupName, groupIcon, members, groupId } = location.state || {
+    groupName: "Group",
+    groupIcon: "🧾",
     members: [],
   };
 
   // === 1. GET REAL CURRENT USER ===
   const authUser = auth.currentUser;
 
+  // Kita standarisasi objek user "Me"
   const currentUser = {
+    uid: authUser ? authUser.uid : "me", // PENTING: uid harus ada
     id: authUser ? authUser.uid : "me",
     name: authUser?.displayName || "You",
     username: "me",
     avatar: authUser?.photoURL || "default",
   };
 
-  // === 2. FIX MAPPING MEMBER (LOGIC BARU) ===
-  // Kita format dulu data members yang masuk biar properti 'name'-nya pasti ada
-  const formattedMembers = members.map((m) => ({
-    id: m.uid || m.id,
-    // Cek berurutan: m.name (kalo dari home) -> m.displayName (kalo dari create group) -> m.username -> "Unknown"
-    name: m.name || m.displayName || m.username || "Unknown",
-    username: m.username || "",
-    avatar: m.avatar || m.photoURL || "default",
-  }));
+  // === 2. FIX MAPPING MEMBER (ANTI DUPLIKAT) ===
+  const formattedMembers = members
+    // FILTER PENTING: Buang member yang ID-nya sama dengan Current User
+    .filter((m) => (m.uid || m.id) !== currentUser.uid)
+    .map((m) => ({
+      uid: m.uid || m.id, // Prioritas ambil uid
+      id: m.uid || m.id,
+      name: m.name || m.displayName || m.username || "Unknown",
+      username: m.username || "",
+      avatar: m.avatar || m.photoURL || "default",
+    }));
 
-  // Gabungkan User Login + Teman yang sudah diformat
+  // Gabungkan User Login + Teman yang sudah difilter
+  // Hasilnya: [Saya, Teman A, Teman B] -> Tidak ada Saya ganda
   const allMembers = [currentUser, ...formattedMembers];
 
   // === STATE ===
@@ -48,8 +53,8 @@ const SplitBill = () => {
   // Initialize Orders
   const [memberOrders, setMemberOrders] = useState(
     allMembers.map((m) => ({
-      memberId: m.id,
-      memberName: m.name, // <-- Sekarang ini pasti ada isinya (Zaki, Fuji, dll)
+      memberId: m.uid, // Gunakan UID sebagai ID referensi
+      memberName: m.name,
       items: [{ id: Date.now() + Math.random(), name: "", price: "", qty: "" }],
     })),
   );
@@ -112,9 +117,10 @@ const SplitBill = () => {
 
     navigate("/split-success", {
       state: {
+        groupId,
         groupName,
         groupIcon,
-        members: allMembers,
+        members: allMembers, // Kirim list member yang sudah rapi
         memberOrders,
         tax: parseFloat(tax) || 0,
         service: parseFloat(service) || 0,
@@ -124,7 +130,7 @@ const SplitBill = () => {
 
   // === COMPONENT AVATAR ===
   const UserAvatar = ({ url, size = "w-14 h-14", iconSize = 20 }) => {
-    if (url && url !== "default") {
+    if (url && url !== "default" && url.startsWith("http")) {
       return (
         <img
           src={url}
@@ -203,7 +209,6 @@ const SplitBill = () => {
                       size="w-6 h-6"
                       iconSize={10}
                     />
-                    {/* RENDER NAMA MEMBER */}
                     <span>{order.memberName}</span>
                   </div>
                   <span className="text-xs text-gray-400">▼</span>

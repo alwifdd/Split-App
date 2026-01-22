@@ -1,143 +1,192 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { IoChevronBack } from "react-icons/io5";
+import { FaUser } from "react-icons/fa";
+
+// FIREBASE
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 const YourOwe = () => {
   const navigate = useNavigate();
+  const [debtList, setDebtList] = useState([]);
+  const [totalDebt, setTotalDebt] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  // === DATA DUMMY UTANG ===
-  const debts = [
-    {
-      id: 1,
-      creditorName: "Zaki",
-      creditorAvatar: "https://i.pravatar.cc/150?img=11",
-      groupName: "Mieayam Team",
-      billTitle: "Mie Gacoan",
-      date: "10 Nov 2025",
-      amount: 15000,
-    },
-    {
-      id: 2,
-      creditorName: "Fuji",
-      creditorAvatar: "https://i.pravatar.cc/150?img=5",
-      groupName: "Coffe Team",
-      billTitle: "Kopi Tuku",
-      date: "09 Nov 2025",
-      amount: 25000,
-    },
-    {
-      id: 3,
-      creditorName: "Keanu",
-      creditorAvatar: "https://i.pravatar.cc/150?img=8",
-      groupName: "Trip Bali",
-      billTitle: "Sewa Villa",
-      date: "01 Nov 2025",
-      amount: 150000,
-    },
-  ];
+  // Helper Avatar
+  const UserAvatar = ({ url, size }) => {
+    if (url && url !== "default" && url.startsWith("http")) {
+      return (
+        <img
+          src={url}
+          alt="Ava"
+          className={`${size} rounded-full object-cover bg-gray-200 border border-gray-100`}
+        />
+      );
+    }
+    return (
+      <div
+        className={`${size} rounded-full bg-gray-200 border border-gray-100 flex items-center justify-center text-gray-400`}
+      >
+        <FaUser size={14} />
+      </div>
+    );
+  };
 
-  // Hitung Total Utang
-  const totalOwe = debts.reduce((acc, curr) => acc + curr.amount, 0);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const billsRef = collection(db, "bills");
+          const q = query(
+            billsRef,
+            where("involvedMemberIds", "array-contains", user.uid),
+          );
+
+          const snapshot = await getDocs(q);
+          const debts = [];
+          let calculatedTotal = 0;
+
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            const splits = data.splits || [];
+            const mySplit = splits.find((s) => s.uid === user.uid);
+
+            if (mySplit && mySplit.status === "unpaid") {
+              if (data.createdBy !== user.uid) {
+                const amount = mySplit.totalAmount || 0;
+                calculatedTotal += amount;
+
+                const dateObj = data.createdAt?.toDate
+                  ? data.createdAt.toDate()
+                  : new Date();
+                const dateStr = dateObj.toLocaleDateString("id-ID", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                });
+
+                debts.push({
+                  id: doc.id,
+                  title: data.title || "Split Bill",
+                  groupName: data.groupName,
+                  creditorName: data.creatorName || "Friend",
+                  amount: amount,
+                  date: dateStr,
+                  fullData: { id: doc.id, ...data },
+                  creditorAvatar:
+                    splits.find((s) => s.uid === data.createdBy)?.avatar ||
+                    "default",
+                });
+              }
+            }
+          });
+
+          debts.sort((a, b) => b.amount - a.amount);
+          setDebtList(debts);
+          setTotalDebt(calculatedTotal);
+        } catch (error) {
+          console.error("Error fetching debts:", error);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        navigate("/login");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
+
+  if (loading) {
+    return (
+      <div className="h-screen bg-white flex items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      {/* === TOP BAR === */}
-      <div className="px-6 pt-12 pb-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center text-gray-800 active:opacity-60"
-        >
-          <IoChevronBack size={24} />
-          <span className="font-semibold ml-1 text-sm">Back</span>
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto pb-10 px-6">
-        {/* === HEADER TOTAL === */}
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Your Owe</h1>
-
-        {/* Card Total */}
-        <div className="bg-[#1E4720] rounded-3xl p-6 text-white shadow-lg mb-8 relative overflow-hidden">
-          {/* Hiasan Circle */}
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-white opacity-10 rounded-full"></div>
-          <div className="absolute -left-4 -bottom-4 w-20 h-20 bg-white opacity-10 rounded-full"></div>
-
-          <p className="text-sm font-medium opacity-80 mb-1">
-            Total Unpaid Debt
-          </p>
-          <h2 className="text-3xl font-bold">
-            Rp {totalOwe.toLocaleString("id-ID")}
-          </h2>
-          <p className="text-xs opacity-60 mt-4">
-            Don't forget to pay your friends!
-          </p>
+    // FIX SCROLL: Gunakan h-screen dan overflow-hidden di container utama
+    <div className="h-screen bg-white flex justify-center overflow-hidden">
+      <div className="w-full max-w-[400px] bg-white h-full relative flex flex-col">
+        {/* HEADER AREA (FIXED) */}
+        <div className="px-6 pt-8 pb-4 shrink-0 bg-white z-10">
+          <button
+            onClick={() => navigate("/home")}
+            className="flex items-center text-gray-800 mb-4 active:opacity-60"
+          >
+            <IoChevronBack size={24} />
+            <span className="font-bold ml-2 text-lg">Your Owe</span>
+          </button>
         </div>
 
-        {/* === LIST UTANG === */}
-        <h3 className="font-bold text-gray-800 mb-4 text-sm">Details</h3>
-        <div className="space-y-4">
-          {debts.map((debt) => (
-            <div
-              key={debt.id}
-              // NAVIGASI KE BILL DETAIL BAWA DATA DUMMY
-              onClick={() =>
-                navigate("/bill-detail", {
-                  state: {
-                    title: debt.billTitle,
-                    date: debt.date,
-                    groupName: debt.groupName,
-                    icon: "🧾",
-                    creditor: {
-                      name: debt.creditorName,
-                      avatar: debt.creditorAvatar,
-                    },
-                    totalDebt: debt.amount,
-                    // Dummy item detail yang dinamis sesuai jumlah utang
-                    items: [
-                      { name: "Item A", price: debt.amount * 0.6, qty: 1 },
-                      { name: "Item B", price: debt.amount * 0.4, qty: 1 },
-                    ],
-                    taxService: 0,
-                  },
-                })
-              }
-              className="border border-gray-100 rounded-2xl p-4 flex items-center justify-between shadow-sm cursor-pointer active:scale-[0.98] transition-transform hover:bg-gray-50"
-            >
-              <div className="flex items-center gap-4">
-                {/* Avatar Teman */}
-                <div className="relative">
-                  <img
-                    src={debt.creditorAvatar}
-                    alt={debt.creditorName}
-                    className="w-12 h-12 rounded-full bg-gray-200 border border-gray-100"
-                  />
-                  {/* Icon Notif Kecil */}
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></div>
-                </div>
+        {/* SCROLLABLE CONTENT (Card + List) */}
+        {/* Gunakan flex-1 dan overflow-y-auto agar area ini saja yang scroll */}
+        <div className="flex-1 overflow-y-auto px-6 pb-20">
+          {/* TOTAL CARD */}
+          <div className="bg-[#1E4720] rounded-3xl p-6 text-white shadow-lg relative overflow-hidden mb-8">
+            <div className="absolute -right-4 -top-4 w-24 h-24 bg-white opacity-10 rounded-full"></div>
 
-                {/* Info Utang */}
-                <div>
-                  <p className="font-bold text-gray-900 text-sm">
-                    {debt.creditorName}
-                  </p>
-                  <p className="text-xs text-gray-500 font-medium">
-                    {debt.billTitle}{" "}
-                    <span className="text-gray-300 mx-1">|</span>{" "}
-                    {debt.groupName}
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-1">{debt.date}</p>
-                </div>
-              </div>
+            <p className="text-sm font-medium opacity-80 mb-1">
+              Total Unpaid Debt
+            </p>
+            <h2 className="text-3xl font-bold">
+              Rp {totalDebt.toLocaleString("id-ID")}
+            </h2>
+            <p className="text-[10px] mt-4 opacity-60">
+              Don't forget to pay your friends!
+            </p>
+          </div>
 
-              {/* Nominal */}
-              <div className="text-right">
-                <p className="text-sm font-bold text-red-600">
-                  - Rp {debt.amount.toLocaleString("id-ID")}
-                </p>
-                <span className="text-[10px] text-gray-400">unpaid</span>
+          {/* LIST DEBTS */}
+          <div>
+            <h3 className="font-bold text-gray-800 mb-4 text-sm">Details</h3>
+
+            {debtList.length === 0 ? (
+              <div className="text-center py-10 text-gray-400 text-xs">
+                You are debt free! 🎉
               </div>
-            </div>
-          ))}
+            ) : (
+              <div className="space-y-3">
+                {debtList.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() =>
+                      navigate("/bill-detail", { state: item.fullData })
+                    }
+                    className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors active:scale-[0.99]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <UserAvatar url={item.creditorAvatar} size="w-10 h-10" />
+                      <div>
+                        <p className="font-bold text-sm text-gray-900">
+                          {item.creditorName}
+                        </p>
+                        <p className="text-[10px] text-gray-400">
+                          {item.title} | {item.groupName}
+                        </p>
+                        <p className="text-[10px] text-gray-300">{item.date}</p>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-red-500">
+                        - Rp {item.amount.toLocaleString("id-ID")}
+                      </p>
+                      <span className="text-[10px] bg-red-50 text-red-500 px-2 py-0.5 rounded-full font-medium">
+                        unpaid
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Spacer Bawah agar item terakhir tidak mepet layar */}
+          <div className="h-10"></div>
         </div>
       </div>
     </div>

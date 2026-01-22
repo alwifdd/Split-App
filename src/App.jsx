@@ -1,25 +1,36 @@
+import History from "./pages/History";
+import Notifications from "./pages/Notifications";
+import Profile from "./pages/Profile";
 import { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
 
+// PAGES IMPORTS
 import Onboarding from "./pages/Onboarding";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Home from "./pages/Home";
 import SetUsername from "./pages/SetUsername";
+import Home from "./pages/Home";
+// Jika belum bikin file GroupList, sementara arahkan ke Home saja atau hapus import ini
 import GroupList from "./pages/GroupList";
 import GroupDetail from "./pages/GroupDetail";
-import YourOwe from "./pages/YourOwe"; // <-- IMPORT INI
-import BillDetail from "./pages/BillDetail";
+import YourOwe from "./pages/YourOwe";
+import BillDetail from "./pages/BillDetail"; // <--- PENTING
 
-// 🔥 TAMBAHAN ROUTE BARU
+// SPLIT BILL FLOW
 import SplitBill from "./pages/SplitBill";
 import SplitSuccess from "./pages/SplitSuccess";
-<Route path="/your-owe" element={<YourOwe />} />;
+
 import logoIcon from "./assets/logo-icon.png";
 
 function App() {
   const [loading, setLoading] = useState(true);
 
+  // Loading Screen Effect
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoading(false);
@@ -48,6 +59,7 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-gray-100 flex justify-center items-center">
+        {/* Container HP */}
         <div className="w-full max-w-[400px] bg-white h-screen shadow-2xl relative overflow-hidden flex flex-col">
           <Routes>
             {/* AUTH & ONBOARDING */}
@@ -56,14 +68,26 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/set-username" element={<SetUsername />} />
 
+            <Route path="/history" element={<History />} />
+            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/profile" element={<Profile />} />
+
             {/* HOME & GROUP */}
             <Route path="/home" element={<Home />} />
+            {/* Kalau GroupList belum ada file-nya, ganti element={<Home />} biar gak error */}
             <Route path="/groups" element={<GroupList />} />
             <Route path="/group-detail/:id" element={<GroupDetail />} />
+
+            {/* FEATURES (YANG TADI HILANG/SALAH POSISI) */}
+            <Route path="/your-owe" element={<YourOwe />} />
+            <Route path="/bill-detail" element={<BillDetail />} />
 
             {/* 💸 SPLIT BILL FLOW */}
             <Route path="/split-bill" element={<SplitBill />} />
             <Route path="/split-success" element={<SplitSuccess />} />
+
+            {/* Fallback jika route salah */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
       </div>

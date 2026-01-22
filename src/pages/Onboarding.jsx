@@ -55,8 +55,7 @@ const Onboarding = () => {
             className="text-gray-500 mt-3 leading-relaxed font-normal"
             style={{ fontSize: "14px" }}
           >
-            Split bills easily with friends. No more awkward moments, just fair
-            sharing.
+            Manage your shared payments smarter
           </p>
         </div>
 

@@ -83,8 +83,9 @@ const Login = () => {
         >
           Welcome back,
           <br />
-          <span className="font-bold text-[#1E4720]">
-            Login to your account.
+          {/* === BAGIAN INI YANG SAYA UBAH === */}
+          <span className="font-semibold text-[#000000]">
+            Glad to see you again!
           </span>
         </h2>
 

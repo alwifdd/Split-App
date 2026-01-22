@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { IoClose, IoChevronBack, IoChevronForward } from "react-icons/io5";
+import { IoChevronBack, IoChevronForward, IoClose } from "react-icons/io5"; // Pastikan IoClose diimport
 import { FiPlus } from "react-icons/fi";
-import { FaUser } from "react-icons/fa"; // <--- IMPORT FaUser
+import { FaUser } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 
 // FIREBASE
@@ -57,7 +57,7 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
   const nextColor = () =>
     setColorIndex((prev) => (prev === bgColors.length - 1 ? 0 : prev + 1));
 
-  // === SEARCH USER ===
+  // === SEARCH USER (DIPERBAIKI) ===
   const handleSearch = async (e) => {
     const value = e.target.value;
     setQueryText(value);
@@ -66,7 +66,6 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
       setLoadingSearch(true);
       try {
         const usersRef = collection(db, "users");
-        // Mencari username yg diawali dengan input user
         const q = query(
           usersRef,
           where("username", ">=", value.toLowerCase()),
@@ -77,8 +76,11 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
         const results = [];
 
         querySnapshot.forEach((doc) => {
-          const userData = doc.data();
-          // Filter: Jangan tampilkan diri sendiri & teman yg udah dipilih
+          const data = doc.data();
+          // === FIX PENTING: AMBIL UID DARI DOC.ID ===
+          // Ini menjamin ID tidak undefined meskipun di data field tidak ada uid
+          const userData = { ...data, uid: doc.id };
+
           if (
             userData.uid !== auth.currentUser.uid &&
             !friends.some((f) => f.uid === userData.uid)
@@ -108,7 +110,7 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
     setFriends(friends.filter((f) => f.uid !== uidToRemove));
   };
 
-  // === CREATE GROUP ===
+  // === CREATE GROUP (DIPERBAIKI) ===
   const handleCreateGroup = async () => {
     if (!groupName || !groupEmoji || friends.length === 0) return;
 
@@ -121,11 +123,10 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
           uid: currentUser.uid,
           name: currentUser.displayName || "Me",
           username: "me",
-          // Simpan photoURL asli atau default
           avatar: currentUser.photoURL || "default",
         },
         ...friends.map((f) => ({
-          uid: f.uid,
+          uid: f.uid, // Sekarang ini pasti ada isinya
           name: f.displayName || f.username,
           username: f.username,
           avatar: f.photoURL || "default",
@@ -134,24 +135,26 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
 
       const memberIds = allMembers.map((m) => m.uid);
 
-      await addDoc(collection(db, "groups"), {
+      // 1. SIMPAN GRUP
+      const docRef = await addDoc(collection(db, "groups"), {
         name: groupName,
         icon: groupEmoji,
         color: bgColors[colorIndex],
         createdBy: currentUser.uid,
         createdAt: new Date(),
         members: allMembers,
-        memberIds: memberIds,
+        memberIds: memberIds, // Array ini yang dipakai Home untuk filter
       });
 
       handleClose();
 
-      // Pindah ke Split Bill membawa data Real
+      // 2. NAVIGASI BAWA ID GRUP (PENTING BUAT BILLS & NOTIF)
       navigate("/split-bill", {
         state: {
+          groupId: docRef.id, // <--- JANGAN HILANGKAN INI
           groupName,
           groupIcon: groupEmoji,
-          members: friends, // Kirim teman yg dipilih
+          members: friends,
         },
       });
     } catch (error) {
@@ -162,7 +165,6 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
     }
   };
 
-  // === HELPER RENDER AVATAR (Supaya rapi) ===
   const UserAvatar = ({ url, size = "w-8 h-8", iconSize = 14 }) => {
     if (url && url !== "default") {
       return (
@@ -193,22 +195,14 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={handleClose}
           />
-
           <motion.div
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            drag="y"
-            dragConstraints={{ top: 0 }}
-            dragElastic={0.2}
-            onDragEnd={(_, info) => {
-              if (info.offset.y > 150) handleClose();
-            }}
             className="bg-white w-full max-w-[400px] rounded-t-[30px] p-8 relative z-10 pb-10 min-h-[500px]"
           >
-            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-6 cursor-grab active:cursor-grabbing"></div>
-
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-6"></div>
             <h2 className="text-xl font-bold text-center text-gray-900 mb-2">
               Create new group
             </h2>
@@ -234,7 +228,7 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
                     <IoChevronBack />
                   </button>
                   <div
-                    className="w-20 h-20 rounded-full flex items-center justify-center shadow-sm relative transition-colors duration-300"
+                    className="w-20 h-20 rounded-full flex items-center justify-center shadow-sm relative"
                     style={{ backgroundColor: bgColors[colorIndex] }}
                   >
                     <input
@@ -271,7 +265,7 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
               />
             </div>
 
-            {/* SEARCH FRIENDS */}
+            {/* SEARCH */}
             <div className="mb-20 relative">
               <label className="text-xs text-gray-900 font-semibold ml-1 block mb-2">
                 Add your friends
@@ -285,7 +279,6 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
                   className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#2E7D32]"
                 />
 
-                {/* DROPDOWN SUGGESTIONS */}
                 {queryText.length > 2 && (
                   <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-100 rounded-xl shadow-xl max-h-48 overflow-y-auto z-50">
                     {loadingSearch ? (
@@ -297,9 +290,8 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
                         <div
                           key={user.uid}
                           onClick={() => selectFriend(user)}
-                          className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-none transition-colors"
+                          className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-none"
                         >
-                          {/* Ganti IMG manual jadi component UserAvatar */}
                           <UserAvatar url={user.photoURL} size="w-8 h-8" />
                           <div className="flex flex-col">
                             <span className="text-sm font-semibold text-gray-800">
@@ -320,7 +312,6 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
                 )}
               </div>
 
-              {/* SELECTED FRIENDS (TAGS) */}
               {friends.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-3">
                   {friends.map((friend, index) => (
@@ -328,7 +319,6 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
                       key={index}
                       className="bg-gray-100 border border-gray-200 text-gray-700 text-xs pl-1 pr-2 py-1 rounded-full flex items-center gap-2 font-medium"
                     >
-                      {/* Ganti IMG manual jadi component UserAvatar */}
                       <UserAvatar
                         url={friend.photoURL}
                         size="w-5 h-5"
@@ -345,18 +335,13 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
               )}
             </div>
 
-            {/* BUTTON CREATE */}
             <div className="absolute bottom-8 left-8 right-8">
               <button
                 onClick={handleCreateGroup}
                 disabled={
                   !groupName || !groupEmoji || friends.length === 0 || creating
                 }
-                className={`w-full font-bold py-4 rounded-full shadow-lg transition-all ${
-                  groupName && groupEmoji && friends.length > 0 && !creating
-                    ? "bg-[#2E7D32] text-white active:scale-95 cursor-pointer"
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                }`}
+                className={`w-full font-bold py-4 rounded-full shadow-lg transition-all ${groupName && groupEmoji && friends.length > 0 && !creating ? "bg-[#2E7D32] text-white active:scale-95 cursor-pointer" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
               >
                 {creating ? "Creating..." : "Create"}
               </button>

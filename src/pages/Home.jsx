@@ -14,7 +14,7 @@ import {
   collection,
   query,
   where,
-  getDocs,
+  onSnapshot, // <--- PENTING: Import ini untuk real-time
 } from "firebase/firestore";
 
 const Home = () => {
@@ -48,89 +48,103 @@ const Home = () => {
     );
   };
 
-  // === FETCH DATA ===
+  // === FETCH DATA (REAL-TIME) ===
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
-          // A. PROFILE
+          // A. PROFILE (Ambil sekali saja cukup)
           const userDoc = await getDoc(doc(db, "users", user.uid));
           if (userDoc.exists()) {
             setCurrentUser(userDoc.data());
           }
 
-          // B. GROUPS (SORTED DESCENDING)
+          // B. GROUPS (REAL-TIME LISTENER)
           const groupsRef = collection(db, "groups");
           const qGroups = query(
             groupsRef,
             where("memberIds", "array-contains", user.uid),
           );
 
-          const groupSnap = await getDocs(qGroups);
-          const groupData = [];
-          groupSnap.forEach((doc) => {
-            groupData.push({ id: doc.id, ...doc.data() });
+          // Pakai onSnapshot biar otomatis update kalau ada grup baru
+          const unsubscribeGroups = onSnapshot(qGroups, (snapshot) => {
+            const groupData = snapshot.docs.map((doc) => ({
+              id: doc.id,
+              ...doc.data(),
+            }));
+
+            // Sort Group Terbaru
+            groupData.sort((a, b) => {
+              const timeA = a.createdAt?.seconds || 0;
+              const timeB = b.createdAt?.seconds || 0;
+              return timeB - timeA;
+            });
+
+            setGroups(groupData);
           });
 
-          // Sort Group Terbaru (Paling Kiri)
-          groupData.sort((a, b) => {
-            const timeA = a.createdAt?.seconds || 0;
-            const timeB = b.createdAt?.seconds || 0;
-            return timeB - timeA;
-          });
-
-          setGroups(groupData);
-
-          // C. BILLS & HITUNG UTANG
+          // C. BILLS (REAL-TIME LISTENER)
           const billsRef = collection(db, "bills");
           const qBills = query(
             billsRef,
             where("involvedMemberIds", "array-contains", user.uid),
           );
 
-          const billSnap = await getDocs(qBills);
-          const billData = [];
-          let calculatedDebt = 0;
+          // Pakai onSnapshot biar otomatis update kalau ada bill baru
+          const unsubscribeBills = onSnapshot(qBills, (snapshot) => {
+            const billData = [];
+            let calculatedDebt = 0;
 
-          billSnap.forEach((doc) => {
-            const data = doc.data();
-            const dateObj = data.createdAt?.toDate
-              ? data.createdAt.toDate()
-              : new Date();
-            const dateStr = dateObj.toLocaleDateString("id-ID", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            });
+            snapshot.forEach((doc) => {
+              const data = doc.data();
+              const dateObj = data.createdAt?.toDate
+                ? data.createdAt.toDate()
+                : new Date();
+              const dateStr = dateObj.toLocaleDateString("id-ID", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              });
 
-            // Hitung Utang Saya
-            const mySplit = data.splits?.find((s) => s.uid === user.uid);
-            if (mySplit && mySplit.status === "unpaid") {
-              calculatedDebt += mySplit.totalAmount || 0;
-            }
+              // Hitung Utang Saya
+              const mySplit = data.splits?.find((s) => s.uid === user.uid);
+              if (mySplit && mySplit.status === "unpaid") {
+                calculatedDebt += mySplit.totalAmount || 0;
+              }
 
-            billData.push({
-              id: doc.id,
-              ...data,
-              date: dateStr,
-              icon: data.groupIcon,
-              members: data.splits.map((s) => ({ avatar: s.avatar })),
-
-              // DATA UNTUK HALAMAN DETAIL (PENTING: Masukkan semua data)
-              fullData: {
+              billData.push({
                 id: doc.id,
-                ...data, // Copy semua field (splits, groupName, dll)
-                isExisting: true,
-              },
+                ...data,
+                date: dateStr,
+                icon: data.groupIcon,
+                members: data.splits
+                  ? data.splits.map((s) => ({ avatar: s.avatar }))
+                  : [],
+
+                // DATA UNTUK HALAMAN DETAIL
+                fullData: {
+                  id: doc.id,
+                  ...data,
+                  isExisting: true,
+                },
+              });
             });
+
+            // Sort Bill Terbaru
+            billData.sort((a, b) => b.createdAt - a.createdAt);
+
+            setBills(billData);
+            setTotalOwe(calculatedDebt);
+            setLoading(false); // Stop loading setelah data didapat
           });
 
-          billData.sort((a, b) => b.createdAt - a.createdAt);
-          setBills(billData);
-          setTotalOwe(calculatedDebt);
+          // Cleanup listener saat pindah halaman/logout
+          return () => {
+            unsubscribeGroups();
+            unsubscribeBills();
+          };
         } catch (error) {
           console.error("Error fetching data:", error);
-        } finally {
           setLoading(false);
         }
       } else {
@@ -138,7 +152,7 @@ const Home = () => {
       }
     });
 
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, [navigate]);
 
   if (loading) {

@@ -1,16 +1,28 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { IoChevronBack } from "react-icons/io5";
-import { FaUser } from "react-icons/fa";
+import { FaUser, FaRegCreditCard, FaWallet, FaRegCopy } from "react-icons/fa";
 
 // FIREBASE IMPORTS
-import { doc, updateDoc, addDoc, collection, getDoc } from "firebase/firestore";
+import {
+  doc,
+  updateDoc,
+  addDoc,
+  collection,
+  getDoc,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
 import { db, auth } from "../firebase";
 
 const BillDetail = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [markingPaid, setMarkingPaid] = useState(false);
+
+  // State untuk menyimpan data Payment si Pembuat Bill
+  const [creatorProfile, setCreatorProfile] = useState(null);
 
   // === 1. AMBIL DATA ===
   const data = location.state || {};
@@ -54,13 +66,39 @@ const BillDetail = () => {
       : new Date(data.date.seconds * 1000).toLocaleDateString("id-ID")
     : "Recently";
 
-  // === 3. LOGIC MARK AS PAID ===
+  // === 3. LOGIC STATUS & CREATOR ===
   const mySplit = memberOrders.find(
     (m) => (m.uid || m.memberId) === currentUser?.uid,
   );
   const isMyStatusUnpaid = mySplit && mySplit.status === "unpaid";
   const isCreator = data.createdBy === currentUser?.uid;
 
+  // === 4. FETCH DATA PEMBAYARAN CREATOR ===
+  // Kita ambil data profile si pembuat bill agar pengutang tau mau transfer kemana
+  useEffect(() => {
+    const fetchCreatorProfile = async () => {
+      if (data.createdBy) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", data.createdBy));
+          if (userDoc.exists()) {
+            setCreatorProfile(userDoc.data());
+          }
+        } catch (err) {
+          console.error("Gagal ambil data creator", err);
+        }
+      }
+    };
+    fetchCreatorProfile();
+  }, [data.createdBy]);
+
+  // Fungsi Copy Clipboard
+  const handleCopy = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    alert(`Copied: ${text}`);
+  };
+
+  // === 5. LOGIC MARK AS PAID ===
   const handleMarkAsPaid = async () => {
     if (!currentUser) return;
     setMarkingPaid(true);
@@ -69,20 +107,18 @@ const BillDetail = () => {
       const billId = data.id;
       const billRef = doc(db, "bills", billId);
 
-      // Ambil Data Terbaru dari DB
       const billSnap = await getDoc(billRef);
 
       if (billSnap.exists()) {
         const billDataDB = billSnap.data();
         const splits = billDataDB.splits;
 
-        // Cari data saya di DB untuk ambil nama yang benar
+        // Cari data saya
         const mySplitInDB = splits.find((s) => s.uid === currentUser.uid);
-        // Prioritas Nama: Nama di Bill > Nama Auth > "Member"
         const senderName =
           mySplitInDB?.name || currentUser.displayName || "Member";
 
-        // Update Status jadi 'paid'
+        // Update Status 'paid'
         const updatedSplits = splits.map((s) => {
           if (s.uid === currentUser.uid) {
             return { ...s, status: "paid" };
@@ -90,21 +126,34 @@ const BillDetail = () => {
           return s;
         });
 
-        // Simpan ke DB
         await updateDoc(billRef, { splits: updatedSplits });
 
         // Kirim Notifikasi ke Creator
         if (billDataDB.createdBy !== currentUser.uid) {
-          // Pastikan groupId ada. Jika bill lama gak punya groupId, pakai default atau dari state
-          const targetGroupId = billDataDB.groupId || data.groupId || "UNKNOWN";
+          // Logic Pintar (Fallback Group ID)
+          let targetGroupId = billDataDB.groupId || data.groupId;
+          if (!targetGroupId || targetGroupId === "UNKNOWN") {
+            try {
+              const qGroup = query(
+                collection(db, "groups"),
+                where("name", "==", billDataDB.groupName),
+              );
+              const groupSnap = await getDocs(qGroup);
+              if (!groupSnap.empty) {
+                targetGroupId = groupSnap.docs[0].id;
+              }
+            } catch (err) {
+              console.error(err);
+            }
+          }
 
           await addDoc(collection(db, "notifications"), {
             recipientId: billDataDB.createdBy,
             senderId: currentUser.uid,
-            senderName: senderName, // <--- SUDAH DIPERBAIKI (Bukan "User" lagi)
+            senderName: senderName,
             senderAvatar: currentUser.photoURL || "default",
             type: "payment_paid",
-            groupId: targetGroupId, // <--- Menggunakan ID yang lebih aman
+            groupId: targetGroupId || "UNKNOWN",
             groupName: billDataDB.groupName,
             billId: billId,
             message: `has paid their part in the '${billDataDB.groupName}' group.`,
@@ -157,6 +206,7 @@ const BillDetail = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto pb-40 px-6 pt-4">
+        {/* HERO */}
         <div className="flex flex-col items-center mb-8 mt-4">
           <div className="w-20 h-20 rounded-full bg-[#C1E2CA] flex items-center justify-center text-4xl mb-4 shadow-sm">
             {groupIcon}
@@ -184,7 +234,8 @@ const BillDetail = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm relative mb-10">
+        {/* RECEIPT CARD */}
+        <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm relative mb-6">
           <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-gray-50 to-transparent opacity-50 rounded-t-3xl"></div>
           <h2 className="text-center font-bold text-lg mb-1 text-gray-800">
             Bill Receipt
@@ -261,6 +312,72 @@ const BillDetail = () => {
             </p>
           </div>
         </div>
+
+        {/* === PAYMENT INFO CARD (NEW) === */}
+        {/* Hanya muncul jika: Saya bukan Creator DAN Creator Profile sudah diload */}
+        {!isCreator && creatorProfile && (
+          <div className="bg-blue-50 border border-blue-100 rounded-3xl p-5 mb-10">
+            <div className="flex items-center gap-3 mb-4">
+              <UserAvatar url={creatorProfile.photoURL} size="w-10 h-10" />
+              <div>
+                <p className="text-[10px] text-blue-500 font-bold uppercase tracking-wider">
+                  Transfer Payment To
+                </p>
+                <p className="font-bold text-gray-800 text-sm">
+                  {creatorProfile.displayName || creatorProfile.username}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {/* Bank Info */}
+              <div className="bg-white p-3 rounded-xl flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
+                    <FaRegCreditCard size={12} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400">Bank Account</p>
+                    <p className="text-xs font-bold text-gray-700">
+                      {creatorProfile.bankAccount || "-"}
+                    </p>
+                  </div>
+                </div>
+                {creatorProfile.bankAccount && (
+                  <button
+                    onClick={() => handleCopy(creatorProfile.bankAccount)}
+                    className="text-gray-400 hover:text-blue-500 active:scale-95"
+                  >
+                    <FaRegCopy size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* E-Wallet Info */}
+              <div className="bg-white p-3 rounded-xl flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
+                    <FaWallet size={12} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400">E-Wallet</p>
+                    <p className="text-xs font-bold text-gray-700">
+                      {creatorProfile.eWallet || "-"}
+                    </p>
+                  </div>
+                </div>
+                {creatorProfile.eWallet && (
+                  <button
+                    onClick={() => handleCopy(creatorProfile.eWallet)}
+                    className="text-gray-400 hover:text-green-500 active:scale-95"
+                  >
+                    <FaRegCopy size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="fixed bottom-0 w-full max-w-[400px] bg-white p-6 border-t border-gray-100 z-50">

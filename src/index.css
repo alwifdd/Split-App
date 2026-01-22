@@ -7,3 +7,17 @@ body {
   @apply bg-gray-50 text-[#1E4720]; /* Default text warna hijau tua */
   overscroll-behavior-y: none;
 }
+
+/* === HILANGKAN PANAH (SPINNER) DI INPUT NUMBER === */
+
+/* Untuk Chrome, Safari, Edge, Opera */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Untuk Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}

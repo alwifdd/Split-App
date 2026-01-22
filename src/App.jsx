@@ -3,7 +3,7 @@ import Notifications from "./pages/Notifications";
 import Profile from "./pages/Profile";
 import { useState, useEffect } from "react";
 import {
-  BrowserRouter as Router,
+  HashRouter as Router,
   Routes,
   Route,
   Navigate,
@@ -15,11 +15,10 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import SetUsername from "./pages/SetUsername";
 import Home from "./pages/Home";
-// Jika belum bikin file GroupList, sementara arahkan ke Home saja atau hapus import ini
 import GroupList from "./pages/GroupList";
 import GroupDetail from "./pages/GroupDetail";
 import YourOwe from "./pages/YourOwe";
-import BillDetail from "./pages/BillDetail"; // <--- PENTING
+import BillDetail from "./pages/BillDetail";
 
 // SPLIT BILL FLOW
 import SplitBill from "./pages/SplitBill";
@@ -30,26 +29,20 @@ import logoIcon from "./assets/logo-icon.png";
 function App() {
   const [loading, setLoading] = useState(true);
 
-  // Loading Screen Effect
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 2500);
+    const timer = setTimeout(() => setLoading(false), 2500);
     return () => clearTimeout(timer);
   }, []);
 
   if (loading) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ backgroundColor: "#FFFFFF" }}
-      >
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="animate-pulse">
           <img
             src={logoIcon}
             alt="Loading..."
-            style={{ width: "280px", height: "280px" }}
             className="object-contain"
+            style={{ width: "280px", height: "280px" }}
           />
         </div>
       </div>
@@ -59,10 +52,8 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-gray-100 flex justify-center items-center">
-        {/* Container HP */}
         <div className="w-full max-w-[400px] bg-white h-screen shadow-2xl relative overflow-hidden flex flex-col">
           <Routes>
-            {/* AUTH & ONBOARDING */}
             <Route path="/" element={<Onboarding />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -72,21 +63,16 @@ function App() {
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/profile" element={<Profile />} />
 
-            {/* HOME & GROUP */}
             <Route path="/home" element={<Home />} />
-            {/* Kalau GroupList belum ada file-nya, ganti element={<Home />} biar gak error */}
             <Route path="/groups" element={<GroupList />} />
             <Route path="/group-detail/:id" element={<GroupDetail />} />
 
-            {/* FEATURES (YANG TADI HILANG/SALAH POSISI) */}
             <Route path="/your-owe" element={<YourOwe />} />
             <Route path="/bill-detail" element={<BillDetail />} />
 
-            {/* 💸 SPLIT BILL FLOW */}
             <Route path="/split-bill" element={<SplitBill />} />
             <Route path="/split-success" element={<SplitSuccess />} />
 
-            {/* Fallback jika route salah */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

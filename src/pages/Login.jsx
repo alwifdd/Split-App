@@ -1,11 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FcGoogle } from "react-icons/fc";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import logoIcon from "../assets/logo-icon.png";
-import { auth, googleProvider, db } from "../firebase"; // Import Firebase & DB
-import { signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore"; // Untuk cek user di DB
+import { auth, googleProvider, db } from "../firebase";
+import {
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  onAuthStateChanged,
+} from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -13,24 +17,48 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // State untuk loading saat tombol ditekan
   const [loading, setLoading] = useState(false);
 
-  // === FUNGSI CEK USER DI DATABASE ===
-  const checkUserAndNavigate = async (user) => {
-    // Cek apakah user sudah punya data (username & bank) di Firestore
-    const userRef = doc(db, "users", user.uid);
-    const userSnap = await getDoc(userRef);
+  // State untuk loading awal (pengecekan user)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
-    if (userSnap.exists()) {
-      // User lama (sudah isi data) -> Ke Home
+  // === FUNGSI CEK DATA USER & NAVIGASI ===
+  const checkUserAndNavigate = async (user) => {
+    try {
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        navigate("/home");
+      } else {
+        navigate("/set-username");
+      }
+    } catch (error) {
+      console.error("Error checking user db:", error);
+      // Kalau error db, tetap lempar ke home atau login
       navigate("/home");
-    } else {
-      // User baru (login google tapi blm isi data) -> Ke Set Username
-      navigate("/set-username");
     }
   };
 
-  // === 1. LOGIN MANUAL ===
+  // === 1. AUTO-LOGIN LISTENER (SOLUSI BUG) ===
+  // Kode ini akan jalan otomatis saat aplikasi dibuka
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Jika Firebase menemukan user yg tersimpan di browser
+        await checkUserAndNavigate(user);
+      } else {
+        // Jika benar-benar tidak ada user, matikan loading & tampilkan form
+        setIsCheckingAuth(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
+
+  // === 2. LOGIN MANUAL ===
   const handleLogin = async () => {
     if (!email || !password) return alert("Please fill all fields");
     setLoading(true);
@@ -40,20 +68,19 @@ const Login = () => {
         email,
         password,
       );
-      await checkUserAndNavigate(userCredential.user);
+      // Tidak perlu panggil checkUserAndNavigate di sini karena useEffect di atas akan mendeteksinya otomatis
     } catch (error) {
       console.error(error);
       alert("Login Failed: " + error.message);
-    } finally {
       setLoading(false);
     }
   };
 
-  // === 2. LOGIN GOOGLE ===
+  // === 3. LOGIN GOOGLE ===
   const handleGoogleLogin = async () => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      await checkUserAndNavigate(result.user);
+      await signInWithPopup(auth, googleProvider);
+      // Sama, useEffect akan menangkap perubahan auth
     } catch (error) {
       console.error(error);
       alert("Google Login Failed");
@@ -63,10 +90,26 @@ const Login = () => {
   const inputStyle =
     "w-full bg-gray-100 border-transparent focus:bg-white border focus:border-[#1E4720] px-4 py-4 rounded-lg outline-none transition-colors text-gray-700 placeholder-gray-400";
 
+  // === TAMPILAN LOADING (SPLASH SCREEN) ===
+  // Agar user tidak melihat form login dulu baru dilempar (kedip), kita tahan di layar hijau sebentar
+  if (isCheckingAuth) {
+    return (
+      <div className="h-screen w-full bg-[#1E4720] flex items-center justify-center">
+        <img
+          src={logoIcon}
+          alt="Logo"
+          style={{ width: "150px", height: "150px" }}
+          className="object-contain animate-pulse"
+        />
+      </div>
+    );
+  }
+
+  // === TAMPILAN UTAMA (FORM LOGIN) ===
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* HEADER HIJAU */}
-      <div className="bg-[#1E4720] h-[45%] w-full rounded-b-[40px] flex items-center justify-center relative shadow-lg z-0">
+      <div className="bg-[#1E4720] h-[40%] w-full rounded-b-[40px] flex items-center justify-center relative shadow-lg z-0">
         <img
           src={logoIcon}
           alt="Logo"
@@ -76,15 +119,14 @@ const Login = () => {
       </div>
 
       {/* FORM AREA */}
-      <div className="flex-1 px-8 pt-10 pb-6 flex flex-col bg-white">
+      <div className="flex-1 px-8 pt-10 pb-12 flex flex-col bg-white">
         <h2
           className="font-semibold text-gray-900 text-left mb-8 leading-snug"
           style={{ fontSize: "24px" }}
         >
           Welcome back,
           <br />
-          {/* === BAGIAN INI YANG SAYA UBAH === */}
-          <span className="font-semibold text-[#000000]">
+          <span className="font-bold text-[#1E4720]">
             Glad to see you again!
           </span>
         </h2>

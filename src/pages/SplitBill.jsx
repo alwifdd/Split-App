@@ -4,8 +4,6 @@ import { IoChevronBack, IoTrashOutline } from "react-icons/io5";
 import { FiPlus, FiMinus } from "react-icons/fi";
 import { FaUser } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-
-// IMPORT AUTH
 import { auth } from "../firebase";
 
 const SplitBill = () => {
@@ -18,57 +16,49 @@ const SplitBill = () => {
     members: [],
   };
 
-  // === 1. GET REAL CURRENT USER ===
   const authUser = auth.currentUser;
-
-  // Kita standarisasi objek user "Me"
   const currentUser = {
-    uid: authUser ? authUser.uid : "me", // PENTING: uid harus ada
+    uid: authUser ? authUser.uid : "me",
     id: authUser ? authUser.uid : "me",
     name: authUser?.displayName || "You",
     username: "me",
     avatar: authUser?.photoURL || "default",
   };
 
-  // === 2. FIX MAPPING MEMBER (ANTI DUPLIKAT) ===
   const formattedMembers = members
-    // FILTER PENTING: Buang member yang ID-nya sama dengan Current User
     .filter((m) => (m.uid || m.id) !== currentUser.uid)
     .map((m) => ({
-      uid: m.uid || m.id, // Prioritas ambil uid
+      uid: m.uid || m.id,
       id: m.uid || m.id,
       name: m.name || m.displayName || m.username || "Unknown",
       username: m.username || "",
       avatar: m.avatar || m.photoURL || "default",
     }));
 
-  // Gabungkan User Login + Teman yang sudah difilter
-  // Hasilnya: [Saya, Teman A, Teman B] -> Tidak ada Saya ganda
   const allMembers = [currentUser, ...formattedMembers];
 
-  // === STATE ===
   const [tax, setTax] = useState("");
   const [service, setService] = useState("");
-
-  // Initialize Orders
   const [memberOrders, setMemberOrders] = useState(
     allMembers.map((m) => ({
-      memberId: m.uid, // Gunakan UID sebagai ID referensi
+      memberId: m.uid,
       memberName: m.name,
       items: [{ id: Date.now() + Math.random(), name: "", price: "", qty: "" }],
     })),
   );
 
+  // LOGIK TOMBOL: Hanya aktif jika SEMUA terisi dan SEMUA > 0
   const isFormValid = memberOrders.every((member) =>
     member.items.every(
       (item) =>
         item.name.trim() !== "" &&
-        item.price.toString().trim() !== "" &&
-        item.qty.toString().trim() !== "",
+        item.price !== "" &&
+        parseFloat(item.price) > 0 &&
+        item.qty !== "" &&
+        parseFloat(item.qty) > 0,
     ),
   );
 
-  // === HANDLERS ===
   const handleAddItem = (memberIndex) => {
     const newOrders = [...memberOrders];
     newOrders[memberIndex].items.push({
@@ -91,7 +81,7 @@ const SplitBill = () => {
     const currentQty =
       parseInt(newOrders[memberIndex].items[itemIndex].qty) || 0;
     const newQty = currentQty + delta;
-    if (newQty > 0) {
+    if (newQty >= 1) {
       newOrders[memberIndex].items[itemIndex].qty = newQty;
       setMemberOrders(newOrders);
     }
@@ -114,13 +104,12 @@ const SplitBill = () => {
 
   const handleSplitNow = () => {
     if (!isFormValid) return;
-
     navigate("/split-success", {
       state: {
         groupId,
         groupName,
         groupIcon,
-        members: allMembers, // Kirim list member yang sudah rapi
+        members: allMembers,
         memberOrders,
         tax: parseFloat(tax) || 0,
         service: parseFloat(service) || 0,
@@ -128,7 +117,6 @@ const SplitBill = () => {
     });
   };
 
-  // === COMPONENT AVATAR ===
   const UserAvatar = ({ url, size = "w-14 h-14", iconSize = 20 }) => {
     if (url && url !== "default" && url.startsWith("http")) {
       return (
@@ -150,7 +138,6 @@ const SplitBill = () => {
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
-      {/* TOP BAR */}
       <div className="px-6 pt-12 pb-2">
         <button
           onClick={() => navigate(-1)}
@@ -161,9 +148,7 @@ const SplitBill = () => {
         </button>
       </div>
 
-      {/* SCROLLABLE CONTENT */}
       <div className="flex-1 overflow-y-auto pb-40 px-6">
-        {/* HERO SECTION */}
         <div className="flex flex-col items-center mb-8 mt-4">
           <div className="w-20 h-20 rounded-full bg-[#C1E2CA] flex items-center justify-center text-4xl mb-4 shadow-sm">
             {groupIcon}
@@ -179,7 +164,6 @@ const SplitBill = () => {
                   key={idx}
                   className="flex flex-col items-center min-w-[60px]"
                 >
-                  {/* Pakai Component UserAvatar */}
                   <UserAvatar url={m.avatar} size="w-14 h-14" />
                   <span className="text-xs font-medium text-gray-600 mt-2 text-center truncate w-full">
                     {m.name}
@@ -190,14 +174,12 @@ const SplitBill = () => {
           </div>
         </div>
 
-        {/* FORM ORDER */}
         <div className="space-y-8">
           {memberOrders.map((order, memberIndex) => (
             <div
               key={memberIndex}
               className="border-b border-gray-100 pb-8 last:border-0"
             >
-              {/* Dropdown User */}
               <div className="mb-4">
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block ml-1">
                   Who orders
@@ -215,33 +197,19 @@ const SplitBill = () => {
                 </div>
               </div>
 
-              {/* Input Items Area */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <AnimatePresence>
                   {order.items.map((item, itemIndex) => (
                     <motion.div
                       key={item.id}
                       layout
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -100 }}
-                      className="relative group"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="relative"
                     >
-                      <div className="absolute inset-y-0 right-0 bg-red-500 rounded-xl w-full flex items-center justify-end px-4 z-0">
-                        <IoTrashOutline className="text-white text-xl" />
-                      </div>
-
-                      <motion.div
-                        drag="x"
-                        dragConstraints={{ left: -60, right: 0 }}
-                        dragElastic={0.1}
-                        onDragEnd={(event, info) => {
-                          if (info.offset.x < -50)
-                            handleDeleteItem(memberIndex, itemIndex);
-                        }}
-                        className="bg-white relative z-10 flex gap-2 items-center w-full"
-                      >
-                        {/* 1. MENU NAME */}
+                      <div className="flex gap-2 items-start w-full">
+                        {/* ITEM NAME */}
                         <div className="flex-[2]">
                           <input
                             type="text"
@@ -255,11 +223,11 @@ const SplitBill = () => {
                                 e.target.value,
                               )
                             }
-                            className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] transition-all"
+                            className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-[#2E7D32] transition-all"
                           />
                         </div>
 
-                        {/* 2. PRICE */}
+                        {/* PRICE */}
                         <div className="w-24">
                           <input
                             type="number"
@@ -273,63 +241,75 @@ const SplitBill = () => {
                                 e.target.value,
                               )
                             }
-                            className="w-full bg-white border border-gray-200 rounded-xl px-3 py-3 text-sm text-right focus:outline-none focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] transition-all"
+                            className={`w-full bg-white border ${parseFloat(item.price) < 0 ? "border-red-500" : "border-gray-200"} rounded-xl px-3 py-3 text-sm text-right focus:outline-none focus:border-[#2E7D32] transition-all`}
                           />
+                          {/* Hanya muncul jika user input minus */}
+                          {parseFloat(item.price) < 0 && (
+                            <p className="text-[9px] text-red-500 font-bold mt-1 text-right">
+                              ! NO MINUS
+                            </p>
+                          )}
                         </div>
 
-                        {/* 3. QTY */}
+                        {/* QTY */}
                         <div className="w-24">
-                          {!item.qty ? (
-                            <input
-                              type="number"
-                              placeholder="Qty"
-                              value={item.qty}
-                              onChange={(e) =>
-                                handleInputChange(
-                                  memberIndex,
-                                  itemIndex,
-                                  "qty",
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full bg-white border border-gray-200 rounded-xl px-1 py-3 text-sm text-center focus:outline-none focus:border-[#2E7D32] transition-all"
-                            />
+                          {/* Tampilan input manual jika kosong atau sedang diedit */}
+                          {item.qty === "" || parseFloat(item.qty) <= 0 ? (
+                            <>
+                              <input
+                                type="number"
+                                placeholder="Qty"
+                                value={item.qty}
+                                onChange={(e) =>
+                                  handleInputChange(
+                                    memberIndex,
+                                    itemIndex,
+                                    "qty",
+                                    e.target.value,
+                                  )
+                                }
+                                className={`w-full bg-white border ${parseFloat(item.qty) < 0 ? "border-red-500" : "border-gray-200"} rounded-xl px-1 py-3 text-sm text-center focus:outline-none focus:border-[#2E7D32] transition-all`}
+                              />
+                              {parseFloat(item.qty) < 0 && (
+                                <p className="text-[9px] text-red-500 font-bold mt-1 text-center">
+                                  ! NO MINUS
+                                </p>
+                              )}
+                            </>
                           ) : (
+                            /* Tampilan Stepper jika sudah ada nilai > 0 */
                             <div className="flex items-center justify-between bg-white border border-[#2E7D32] rounded-xl h-[46px] px-1">
                               <button
                                 onClick={() =>
                                   handleQtyChange(memberIndex, itemIndex, -1)
                                 }
-                                className="w-6 h-full flex items-center justify-center text-[#2E7D32] active:opacity-50"
+                                className="w-6 h-full flex items-center justify-center text-[#2E7D32]"
                               >
                                 <FiMinus size={12} />
                               </button>
-
                               <span className="text-sm font-bold text-[#1E4720]">
                                 {item.qty}
                               </span>
-
                               <button
                                 onClick={() =>
                                   handleQtyChange(memberIndex, itemIndex, 1)
                                 }
-                                className="w-6 h-full flex items-center justify-center text-[#2E7D32] active:opacity-50"
+                                className="w-6 h-full flex items-center justify-center text-[#2E7D32]"
                               >
                                 <FiPlus size={12} />
                               </button>
                             </div>
                           )}
                         </div>
-                      </motion.div>
+                      </div>
                     </motion.div>
                   ))}
                 </AnimatePresence>
               </div>
 
-              {/* BUTTON ADD MENU */}
               <button
                 onClick={() => handleAddItem(memberIndex)}
-                className="w-full mt-4 py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
+                className="w-full mt-6 py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
                 style={{
                   backgroundColor: "#C1E2CA",
                   border: "1px solid #375E3A",
@@ -348,44 +328,43 @@ const SplitBill = () => {
             Tax & Service Charges
           </h3>
           <div className="flex gap-4">
-            <div className="flex-1 relative">
-              <span className="absolute left-3 top-3 text-gray-400 text-xs font-bold">
-                %
-              </span>
-              <input
-                type="number"
-                placeholder="Tax (10)"
-                value={tax}
-                onChange={(e) => setTax(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:bg-white focus:border-[#2E7D32] outline-none transition-colors"
-              />
+            <div className="flex-1">
+              <div className="relative">
+                <span className="absolute left-3 top-3 text-gray-400 text-xs font-bold">
+                  %
+                </span>
+                <input
+                  type="number"
+                  placeholder="Tax (10)"
+                  value={tax}
+                  onChange={(e) => setTax(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-8 pr-4 py-3 text-sm focus:bg-white focus:border-[#2E7D32] outline-none transition-colors"
+                />
+              </div>
             </div>
-            <div className="flex-1 relative">
-              <span className="absolute left-3 top-3 text-gray-400 text-xs font-bold">
-                Rp
-              </span>
-              <input
-                type="number"
-                placeholder="Service (2000)"
-                value={service}
-                onChange={(e) => setService(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-4 py-3 text-sm focus:bg-white focus:border-[#2E7D32] outline-none transition-colors"
-              />
+            <div className="flex-1">
+              <div className="relative">
+                <span className="absolute left-3 top-3 text-gray-400 text-xs font-bold">
+                  Rp
+                </span>
+                <input
+                  type="number"
+                  placeholder="Service (2000)"
+                  value={service}
+                  onChange={(e) => setService(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-4 py-3 text-sm focus:bg-white focus:border-[#2E7D32] outline-none transition-colors"
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* FIXED BOTTOM BUTTON */}
       <div className="fixed bottom-0 w-full max-w-[400px] bg-white p-6 border-t border-gray-100 z-50">
         <button
           onClick={handleSplitNow}
           disabled={!isFormValid}
-          className={`w-full py-4 rounded-full font-bold text-white shadow-lg transition-all transform active:scale-[0.98] ${
-            isFormValid
-              ? "bg-[#2E7D32] hover:bg-[#256D3A] cursor-pointer"
-              : "bg-gray-300 cursor-not-allowed"
-          }`}
+          className={`w-full py-4 rounded-full font-bold text-white shadow-lg transition-all transform active:scale-[0.98] ${isFormValid ? "bg-[#2E7D32] hover:bg-[#256D3A]" : "bg-gray-300 cursor-not-allowed"}`}
         >
           Split Now
         </button>
